@@ -407,7 +407,7 @@ private fun TopScreen(
     ) {
         Image(
             painter = painterResource(id = R.drawable.life_recovery_compass_icon),
-            contentDescription = "Life Recovery Compass",
+            contentDescription = "生活回復コンパス",
             modifier = Modifier
                 .size(96.dp)
                 .clip(RoundedCornerShape(20.dp)),
@@ -415,7 +415,7 @@ private fun TopScreen(
         )
     }
     Text(
-        text = "Life Recovery Compass",
+        text = "生活回復コンパス",
         modifier = Modifier.fillMaxWidth(),
         color = TextPrimary,
         fontSize = 28.sp,
