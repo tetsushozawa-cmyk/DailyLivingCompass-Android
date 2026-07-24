@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
 
-    <style name="Theme.FMEXFirstStep" parent="android:Theme.Material.Light.NoActionBar">
+    <style name="Theme.DailyLivingCompass" parent="android:Theme.Material.Light.NoActionBar">
         <item name="android:forceDarkAllowed">false</item>
         <item name="android:colorAccent">#FF6200EE</item>
         <item name="android:windowBackground">#FFFFFFFF</item>

@@ -61,7 +61,7 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.fmexfirststep.ui.theme.FMEXFirstStepTheme
+import com.example.fmexfirststep.ui.theme.DailyLivingCompassTheme
 import org.json.JSONArray
 import org.json.JSONObject
 import java.text.SimpleDateFormat
@@ -73,8 +73,8 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            FMEXFirstStepTheme {
-                FibromyalgiaFirstStepApp()
+            DailyLivingCompassTheme {
+                DailyLivingCompassApp()
             }
         }
     }
@@ -157,7 +157,7 @@ private data class MandalaMarker(
 )
 
 @Composable
-private fun FibromyalgiaFirstStepApp() {
+private fun DailyLivingCompassApp() {
     var step by remember { mutableStateOf(AppStep.Top) }
     var checkState by remember { mutableStateOf(SelfCheckState()) }
     var dateText by remember { mutableStateOf("") }
@@ -1863,8 +1863,8 @@ private val MandalaTwelveWeeksColor = Color(0xFF1565C0)
 
 @Preview(showBackground = true)
 @Composable
-private fun FibromyalgiaFirstStepPreview() {
-    FMEXFirstStepTheme {
-        FibromyalgiaFirstStepApp()
+private fun DailyLivingCompassPreview() {
+    DailyLivingCompassTheme {
+        DailyLivingCompassApp()
     }
 }

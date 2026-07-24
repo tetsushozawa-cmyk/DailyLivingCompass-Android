@@ -22,7 +22,7 @@ private val AppColorScheme = lightColorScheme(
 )
 
 @Composable
-fun FMEXFirstStepTheme(
+fun DailyLivingCompassTheme(
     content: @Composable () -> Unit
 ) {
     MaterialTheme(
