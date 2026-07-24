@@ -1,4 +1,4 @@
-package com.example.fmexfirststep
+package com.tetsushozawa.dailylivingcompass
 
 import org.junit.Test
 

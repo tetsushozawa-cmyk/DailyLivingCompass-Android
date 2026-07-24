@@ -1,4 +1,4 @@
-package com.example.fmexfirststep
+package com.tetsushozawa.dailylivingcompass
 
 import android.content.Context
 import android.os.Bundle
@@ -61,7 +61,7 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.fmexfirststep.ui.theme.DailyLivingCompassTheme
+import com.tetsushozawa.dailylivingcompass.ui.theme.DailyLivingCompassTheme
 import org.json.JSONArray
 import org.json.JSONObject
 import java.text.SimpleDateFormat

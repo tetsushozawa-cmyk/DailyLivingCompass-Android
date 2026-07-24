@@ -1,4 +1,4 @@
-package com.example.painrecord001
+package com.tetsushozawa.dailylivingcompass
 
 import android.content.Context
 import android.graphics.Canvas

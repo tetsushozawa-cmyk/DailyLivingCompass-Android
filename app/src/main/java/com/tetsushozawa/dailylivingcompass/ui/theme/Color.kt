@@ -1,4 +1,4 @@
-package com.example.fmexfirststep.ui.theme
+package com.tetsushozawa.dailylivingcompass.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
