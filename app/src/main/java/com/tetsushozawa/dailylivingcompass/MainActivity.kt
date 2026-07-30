@@ -2,15 +2,18 @@ package com.tetsushozawa.dailylivingcompass
 
 import android.content.Context
 import android.os.Bundle
+import androidx.activity.compose.BackHandler
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -49,6 +52,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
@@ -85,8 +89,10 @@ private enum class AppStep {
     SavedRecords,
     RecoveryProgress,
     RecoveryMandala,
+    SocialActivityCompassInfo,
     BasicInfo,
     SelfCheck,
+    AbilityRange,
     Result,
     BeforeStart,
     DeepBreathingLevel1,
@@ -94,10 +100,11 @@ private enum class AppStep {
     StandingLevel3,
     DeepSquatLevel32,
     IndoorWalkingLevel4,
+    Program2IndoorWalking,
     FamilyProgramCompleted
 }
 
-private data class SelfCheckState(
+internal data class SelfCheckState(
     val pain: Int = 0,
     val fatigue: Int = 0,
     val sleep: Int = 0,
@@ -136,24 +143,59 @@ private data class SavedExerciseRecord(
     val breathlessness: String,
     val strongPain: String,
     val fallRisk: String,
+    val startPain: String,
+    val startFatigue: String,
+    val startSleep: String,
+    val startBreathing: String,
+    val startComparison: String,
+    val startGetUp: String,
+    val startSit: String,
+    val startStand: String,
+    val startIndoorWalk: String,
+    val startOutdoorWalk: String,
     val nextDayWorse: String,
     val nextCriteria: String,
     val backCriteria: String
 ) {
+    val hasStartCondition: Boolean
+        get() = listOf(
+            startPain,
+            startFatigue,
+            startSleep,
+            startBreathing,
+            startComparison,
+            startGetUp,
+            startSit,
+            startStand,
+            startIndoorWalk,
+            startOutdoorWalk
+        ).any { it.isNotBlank() }
+
     val programCategory: String
-        get() = if (level.startsWith("社会復帰編") || programName == "社会復帰プログラム") {
+        get() = if (programName == BasicRecoveryProgramName || programName == WalkingProgramName) {
+            programName
+        } else if (level.startsWith("社会復帰編") || programName == "社会復帰プログラム") {
             "社会復帰プログラム"
         } else {
             "家庭生活復帰プログラム"
-    }
+        }
+
+    val exerciseName: String
+        get() = exerciseNameForRecord(programName, level)
 }
 
-private data class MandalaMarker(
-    val symbol: String,
-    val color: Color,
-    val fontSize: Int,
-    val backgroundColor: Color? = null,
-    val isHistoryDot: Boolean = false
+internal data class MandalaTrajectoryPoint(
+    val cell: Pair<Int, Int>,
+    val isLatest: Boolean
+)
+
+internal data class MandalaStartState(
+    val fatigue: String,
+    val getUp: String,
+    val sit: String,
+    val stand: String,
+    val indoorWalk: String,
+    val outdoorWalk: String
 )
 
 @Composable
@@ -164,6 +206,7 @@ private fun DailyLivingCompassApp() {
     var timeText by remember { mutableStateOf("") }
     var basicMemo by remember { mutableStateOf("") }
     var level by remember { mutableStateOf<ProgramLevel?>(null) }
+    var selectedProgramName by remember { mutableStateOf(BasicRecoveryProgramName) }
     var scrollResetKey by remember { mutableStateOf(0) }
     val scrollState = remember(step, scrollResetKey) { ScrollState(0) }
 
@@ -210,7 +253,12 @@ private fun DailyLivingCompassApp() {
                     )
 
                     AppStep.RecoveryMandala -> RecoveryMandalaScreen(
-                        onBack = { step = AppStep.Top }
+                        onBack = { step = AppStep.Top },
+                        onShowSocialActivityCompass = { step = AppStep.SocialActivityCompassInfo }
+                    )
+
+                    AppStep.SocialActivityCompassInfo -> SocialActivityCompassInfoScreen(
+                        onBack = { step = AppStep.RecoveryMandala }
                     )
 
                     AppStep.BasicInfo -> BasicInfoScreen(
@@ -224,6 +272,13 @@ private fun DailyLivingCompassApp() {
                     AppStep.SelfCheck -> SelfCheckScreen(
                         state = checkState,
                         onStateChange = { checkState = it },
+                        onNext = { step = AppStep.AbilityRange }
+                    )
+
+                    AppStep.AbilityRange -> AbilityRangeScreen(
+                        state = checkState,
+                        onStateChange = { checkState = it },
+                        onBack = { step = AppStep.SelfCheck },
                         onEvaluate = {
                             level = judgeProgramLevel(checkState)
                             step = AppStep.Result
@@ -237,37 +292,75 @@ private fun DailyLivingCompassApp() {
                     )
 
                     AppStep.BeforeStart -> BeforeStartScreen(
-                        onStartProgram = { step = AppStep.DeepBreathingLevel1 }
+                        onStartProgram1 = {
+                            selectedProgramName = BasicRecoveryProgramName
+                            step = AppStep.DeepBreathingLevel1
+                        },
+                        onStartProgram2 = {
+                            selectedProgramName = WalkingProgramName
+                            step = AppStep.Program2IndoorWalking
+                        }
                     )
 
                     AppStep.DeepBreathingLevel1 -> DeepBreathingLevel1Screen(
+                        dateText = dateText,
+                        timeText = timeText,
                         preExerciseMemo = basicMemo,
+                        startState = checkState,
+                        recordProgramName = selectedProgramName,
                         onBackToTop = { step = AppStep.Top },
                         onNext = { step = AppStep.DeepBreathingLevel2 }
                     )
 
                     AppStep.DeepBreathingLevel2 -> DeepBreathingLevel2Screen(
+                        dateText = dateText,
+                        timeText = timeText,
                         preExerciseMemo = basicMemo,
+                        startState = checkState,
+                        recordProgramName = selectedProgramName,
                         onBackToTop = { step = AppStep.Top },
                         onNext = { step = AppStep.StandingLevel3 }
                     )
 
                     AppStep.StandingLevel3 -> StandingLevel3Screen(
+                        dateText = dateText,
+                        timeText = timeText,
                         preExerciseMemo = basicMemo,
+                        startState = checkState,
+                        recordProgramName = selectedProgramName,
                         onBackToTop = { step = AppStep.Top },
                         onNext = { step = AppStep.DeepSquatLevel32 }
                     )
 
                     AppStep.DeepSquatLevel32 -> DeepSquatLevel32Screen(
+                        dateText = dateText,
+                        timeText = timeText,
                         preExerciseMemo = basicMemo,
+                        startState = checkState,
+                        recordProgramName = selectedProgramName,
                         onBackToTop = { step = AppStep.Top },
                         onNext = { step = AppStep.IndoorWalkingLevel4 }
                     )
 
                     AppStep.IndoorWalkingLevel4 -> IndoorWalkingLevel4Screen(
+                        dateText = dateText,
+                        timeText = timeText,
                         preExerciseMemo = basicMemo,
+                        startState = checkState,
+                        recordProgramName = selectedProgramName,
                         onBackToTop = { step = AppStep.Top },
                         onComplete = { step = AppStep.FamilyProgramCompleted }
+                    )
+
+                    AppStep.Program2IndoorWalking -> IndoorWalkingLevel4Screen(
+                        dateText = dateText,
+                        timeText = timeText,
+                        preExerciseMemo = basicMemo,
+                        startState = checkState,
+                        recordProgramName = selectedProgramName,
+                        onBackToTop = { step = AppStep.Top },
+                        onComplete = { step = AppStep.FamilyProgramCompleted },
+                        onNavigateBack = { step = AppStep.BeforeStart }
                     )
 
                     AppStep.FamilyProgramCompleted -> FamilyProgramCompletedScreen(
@@ -371,6 +464,7 @@ private fun SavedRecordsScreen(
     val records = allRecords
     var selectedRecord by remember { mutableStateOf<SavedExerciseRecord?>(null) }
     var recordToDelete by remember { mutableStateOf<SavedExerciseRecord?>(null) }
+    var showDeleteAllConfirmation by remember { mutableStateOf(false) }
 
     if (recordToDelete != null) {
         AlertDialog(
@@ -398,6 +492,49 @@ private fun SavedRecordsScreen(
             },
             dismissButton = {
                 TextButton(onClick = { recordToDelete = null }) {
+                    Text("キャンセル", color = Color.Black)
+                }
+            }
+        )
+    }
+
+    if (showDeleteAllConfirmation) {
+        AlertDialog(
+            onDismissRequest = { showDeleteAllConfirmation = false },
+            containerColor = Color.White,
+            title = {
+                Text(
+                    text = "すべての記録を削除しますか？",
+                    color = Color.Black
+                )
+            },
+            text = {
+                Text(
+                    text = "保存されているすべての記録を削除します。\n削除した記録は元に戻せません。",
+                    color = Color.Black
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        if (deleteAllExerciseRecordsSafely(context)) {
+                            allRecords = emptyList()
+                            selectedRecord = null
+                            recordToDelete = null
+                            onResetScroll()
+                        }
+                        showDeleteAllConfirmation = false
+                    }
+                ) {
+                    Text(
+                        text = "すべて削除",
+                        color = Color(0xFFC62828),
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteAllConfirmation = false }) {
                     Text("キャンセル", color = Color.Black)
                 }
             }
@@ -435,6 +572,27 @@ private fun SavedRecordsScreen(
                     },
                     onDelete = { recordToDelete = savedRecord }
                 )
+            }
+        }
+        if (shouldShowDeleteAllRecords(records.size)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.Center
+            ) {
+                Button(
+                    onClick = { showDeleteAllConfirmation = true },
+                    modifier = Modifier.heightIn(min = 40.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFFC62828),
+                        contentColor = Color.White
+                    )
+                ) {
+                    Text(
+                        text = "すべての記録を削除",
+                        fontSize = 14.sp,
+                        lineHeight = 18.sp
+                    )
+                }
             }
         }
         OutlinedButton(
@@ -514,36 +672,74 @@ private fun RecoveryProgressListItem(record: SavedExerciseRecord) {
 }
 
 @Composable
-private fun RecoveryMandalaScreen(onBack: () -> Unit) {
+private fun RecoveryMandalaScreen(
+    onBack: () -> Unit,
+    onShowSocialActivityCompass: () -> Unit
+) {
     val context = LocalContext.current
     val records = remember { loadExerciseRecordsSafely(context) }
-    val evaluations = listOf(1, 2, 3, 4, 5)
-    val initialLevels = listOf(2, 1)
-    val latterLevels = listOf(7, 6, 5, 4, 3)
-    val initialMandalaMarkers = remember(records) {
-        recoveryMandalaMarkers(records, initialLevels, evaluations)
+    val trajectory = remember(records) {
+        recoveryMandalaTrajectory(records)
     }
-    val latterMandalaMarkers = remember(records) {
-        recoveryMandalaMarkers(records, latterLevels, evaluations)
+    val showSocialActivityGuidance = remember(records) {
+        shouldShowSocialActivityGuidanceForRecords(records)
     }
 
     ScreenTitle("回復曼荼羅")
-    RecoveryMandalaGrid(
-        title = "初期曼荼羅",
-        subtitle = "レベル1〜2",
-        levels = initialLevels,
-        evaluations = evaluations,
-        mandalaMarkers = initialMandalaMarkers
+    MessageCard(text = "開始時の動ける範囲と疲労から、生活回復の軌跡を表示します。外枠付きの点が最新の記録です。")
+    RecoveryMandalaGrid(trajectory = trajectory)
+    if (showSocialActivityGuidance) {
+        SocialActivityGuidanceCard(onShowSocialActivityCompass)
+    }
+    OutlinedButton(
+        onClick = onBack,
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(54.dp)
+    ) {
+        Text("戻る")
+    }
+}
+
+@Composable
+private fun SocialActivityGuidanceCard(onShowSocialActivityCompass: () -> Unit) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        shape = RoundedCornerShape(8.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text(
+                text = "次の段階について",
+                color = TextPrimary,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold,
+                lineHeight = 24.sp
+            )
+            Text(
+                text = "屋外での生活が安定してきています。\n通勤・外出・仕事などの社会活動を記録する場合は、\n社会活動コンパスへ進むことができます。",
+                color = TextPrimary,
+                lineHeight = 24.sp
+            )
+            PrimaryButton(
+                text = "社会活動コンパスについて見る",
+                onClick = onShowSocialActivityCompass
+            )
+        }
+    }
+}
+
+@Composable
+private fun SocialActivityCompassInfoScreen(onBack: () -> Unit) {
+    BackHandler(onBack = onBack)
+
+    ScreenTitle("社会活動コンパス")
+    MessageCard(
+        text = "社会活動コンパスは、\n屋外活動が安定した後に、\n通勤、外出、職場での活動などを記録するためのアプリです。\n\n生活回復コンパスの記録はそのまま残ります。\n無理に移行する必要はありません。"
     )
-    MessageCard(text = "詳細は疼痛コンパスを使用してください。")
-    RecoveryMandalaGrid(
-        title = "後半曼荼羅",
-        subtitle = "レベル3〜7",
-        levels = latterLevels,
-        evaluations = evaluations,
-        mandalaMarkers = latterMandalaMarkers
-    )
-    RecoveryMandalaLegend()
     OutlinedButton(
         onClick = onBack,
         modifier = Modifier
@@ -556,111 +752,140 @@ private fun RecoveryMandalaScreen(onBack: () -> Unit) {
 
 @Composable
 private fun RecoveryMandalaGrid(
-    title: String,
-    subtitle: String,
-    levels: List<Int>,
-    evaluations: List<Int>,
-    mandalaMarkers: Map<Pair<Int, Int>, List<MandalaMarker>>
+    trajectory: List<MandalaTrajectoryPoint>
 ) {
+    val columns = listOf("起き上がる", "座る", "立つ", "屋内", "屋外")
+    val rows = listOf(1, 2, 3, 4, 5)
     Text(
-        text = title,
+        text = "動ける範囲",
         color = TextPrimary,
-        fontSize = 22.sp,
         fontWeight = FontWeight.Bold,
-        lineHeight = 28.sp
+        lineHeight = 22.sp
     )
     Text(
-        text = subtitle,
+        text = "疲労（上：少ない／下：強い）",
         color = TextPrimary,
+        fontWeight = FontWeight.Bold,
         lineHeight = 22.sp
     )
     val axisWeight = 0.5f
     val cellWeight = 1f
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        MandalaCell(text = "", modifier = Modifier.weight(axisWeight), cellHeight = 26.dp)
-        levels.forEach { level ->
-            MandalaCell(text = level.toString(), modifier = Modifier.weight(cellWeight), isHeader = true, cellHeight = 26.dp)
+    Box(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                MandalaCell(text = "", modifier = Modifier.weight(axisWeight), cellHeight = 42.dp)
+                columns.forEach { label ->
+                    MandalaCell(
+                        text = label,
+                        modifier = Modifier.weight(cellWeight),
+                        isHeader = true,
+                        cellHeight = 42.dp,
+                        headerFontSize = 11
+                    )
+                }
+            }
+            rows.forEach { row ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    MandalaCell(text = row.toString(), modifier = Modifier.weight(axisWeight), isHeader = true)
+                    columns.forEach {
+                        MandalaCell(text = "", modifier = Modifier.weight(cellWeight))
+                    }
+                }
+            }
         }
+        MandalaTrajectory(
+            trajectory = trajectory,
+            levels = rows,
+            evaluations = rows,
+            headerHeight = 42.dp,
+            modifier = Modifier.fillMaxSize()
+        )
     }
-    evaluations.forEach { evaluation ->
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            MandalaCell(text = evaluation.toString(), modifier = Modifier.weight(axisWeight), isHeader = true)
-            levels.forEach { level ->
-                val cell = level to evaluation
-                MandalaCell(
-                    text = "",
-                    modifier = Modifier.weight(cellWeight),
-                    markers = compactMandalaMarkers(mandalaMarkers[cell].orEmpty())
+    if (trajectory.isEmpty()) {
+        Text(
+            text = "曼荼羅に表示できる開始時の状態記録はまだありません。",
+            color = TextHint,
+            fontSize = 14.sp,
+            lineHeight = 20.sp
+        )
+    }
+}
+
+@Composable
+private fun MandalaTrajectory(
+    trajectory: List<MandalaTrajectoryPoint>,
+    levels: List<Int>,
+    evaluations: List<Int>,
+    headerHeight: androidx.compose.ui.unit.Dp = 26.dp,
+    modifier: Modifier = Modifier
+) {
+    Canvas(modifier = modifier) {
+        if (trajectory.isEmpty()) return@Canvas
+
+        val spacing = 6.dp.toPx()
+        val headerHeightPx = headerHeight.toPx()
+        val rowHeight = 52.dp.toPx()
+        val availableWidth = size.width - spacing * levels.size
+        val weightUnit = availableWidth / (levels.size + 0.5f)
+        val axisWidth = weightUnit * 0.5f
+        val cellWidth = weightUnit
+        val occurrenceCount = mutableMapOf<Pair<Int, Int>, Int>()
+        val positions = trajectory.mapNotNull { point ->
+            val column = levels.indexOf(point.cell.first)
+            val row = evaluations.indexOf(point.cell.second)
+            if (column < 0 || row < 0) return@mapNotNull null
+
+            val occurrence = occurrenceCount.getOrDefault(point.cell, 0)
+            occurrenceCount[point.cell] = occurrence + 1
+            val offsets = listOf(
+                0f to 0f,
+                -14.dp.toPx() to 0f,
+                14.dp.toPx() to 0f,
+                0f to -14.dp.toPx(),
+                0f to 14.dp.toPx(),
+                -12.dp.toPx() to -12.dp.toPx(),
+                12.dp.toPx() to -12.dp.toPx(),
+                -12.dp.toPx() to 12.dp.toPx(),
+                12.dp.toPx() to 12.dp.toPx()
+            )
+            val offset = offsets[occurrence % offsets.size]
+            point to androidx.compose.ui.geometry.Offset(
+                x = axisWidth + spacing + column * (cellWidth + spacing) + cellWidth / 2f + offset.first,
+                y = headerHeightPx + row * rowHeight + rowHeight / 2f + offset.second
+            )
+        }
+
+        positions.zipWithNext().forEach { (from, to) ->
+            drawLine(
+                color = MandalaTrajectoryLineColor,
+                start = from.second,
+                end = to.second,
+                strokeWidth = 1.25.dp.toPx()
+            )
+        }
+        positions.forEach { (point, center) ->
+            drawCircle(
+                color = MandalaTrajectoryPointColor,
+                radius = if (point.isLatest) 7.dp.toPx() else 6.dp.toPx(),
+                center = center
+            )
+            if (point.isLatest) {
+                drawCircle(
+                    color = MandalaTrajectoryPointColor,
+                    radius = 10.dp.toPx(),
+                    center = center,
+                    style = Stroke(width = 2.dp.toPx())
                 )
             }
         }
-    }
-}
-
-@Composable
-private fun RecoveryMandalaLegend() {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
-        shape = RoundedCornerShape(8.dp)
-    ) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Label("色の説明")
-            LegendItem(symbol = "★", color = Color(0xFFFFC107), text = "最新の記録", fontSize = 18)
-            LegendItem(symbol = "★", color = Color.Black, text = "2番目に新しい記録", fontSize = 18)
-            LegendItem(symbol = "☆", color = Color.White, text = "3番目に新しい記録", fontSize = 18, backgroundColor = Color(0xFF7A7A7A))
-            LegendItem(symbol = "●", color = MandalaOneWeekColor, text = "過去1週間")
-            LegendItem(symbol = "●", color = MandalaTwoWeeksColor, text = "過去2週間")
-            LegendItem(symbol = "●", color = MandalaFourWeeksColor, text = "過去4週間")
-            LegendItem(symbol = "●", color = MandalaEightWeeksColor, text = "過去8週間")
-            LegendItem(symbol = "●", color = MandalaTwelveWeeksColor, text = "過去12週間")
-        }
-    }
-}
-
-@Composable
-private fun LegendItem(
-    symbol: String,
-    color: Color,
-    text: String,
-    fontSize: Int = 16,
-    backgroundColor: Color? = null
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(
-            text = symbol,
-            color = color,
-            modifier = if (backgroundColor != null) {
-                Modifier
-                    .background(backgroundColor, RoundedCornerShape(4.dp))
-                    .padding(horizontal = 2.dp)
-            } else {
-                Modifier
-            },
-            fontSize = fontSize.sp,
-            fontWeight = FontWeight.Bold,
-            lineHeight = 20.sp
-        )
-        Text(
-            text = text,
-            color = TextPrimary,
-            lineHeight = 22.sp
-        )
     }
 }
 
@@ -670,8 +895,8 @@ private fun MandalaCell(
     modifier: Modifier = Modifier,
     isHeader: Boolean = false,
     textColor: Color = TextPrimary,
-    markers: List<MandalaMarker> = emptyList(),
-    cellHeight: androidx.compose.ui.unit.Dp = 52.dp
+    cellHeight: androidx.compose.ui.unit.Dp = 52.dp,
+    headerFontSize: Int = 16
 ) {
     Card(
         modifier = modifier.height(cellHeight),
@@ -688,34 +913,11 @@ private fun MandalaCell(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
-            if (markers.isNotEmpty()) {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(1.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    markers.forEach { marker ->
-                        Text(
-                            text = marker.symbol,
-                            color = marker.color,
-                            modifier = if (marker.backgroundColor != null) {
-                                Modifier
-                                    .background(marker.backgroundColor, RoundedCornerShape(4.dp))
-                                    .padding(horizontal = 1.dp)
-                            } else {
-                                Modifier
-                            },
-                            fontSize = marker.fontSize.sp,
-                            fontWeight = FontWeight.Bold,
-                            lineHeight = marker.fontSize.sp
-                        )
-                    }
-                }
-            }
             if (text.isNotEmpty()) {
                 Text(
                     text = text,
                     color = textColor,
-                    fontSize = if (isHeader) 16.sp else 18.sp,
+                    fontSize = if (isHeader) headerFontSize.sp else 18.sp,
                     fontWeight = if (isHeader) FontWeight.Bold else FontWeight.Normal,
                     lineHeight = if (isHeader) 18.sp else 22.sp
                 )
@@ -775,16 +977,27 @@ private fun SavedRecordListItem(
                 lineHeight = 22.sp
             )
             Text(
-                text = "${recordListLevel(record.level)}　${recordEvaluationMark(record.selfEvaluation)}→${recordEvaluationMark(record.nextDayWorse)}",
+                text = "${recordListLevel(record.level)}　${recordEvaluationMark(record.selfEvaluation)}",
                 color = TextPrimary,
                 fontSize = 18.sp,
                 fontWeight = FontWeight.Bold,
                 lineHeight = 24.sp
             )
             Text(
-                text = "自己評価：${record.selfEvaluation}\n翌日：${record.nextDayWorse.ifBlank { "記録なし" }}",
+                text = "自己評価：${record.selfEvaluation}",
                 color = TextPrimary,
                 lineHeight = 22.sp
+            )
+            Text(
+                text = "詳細を見る ＞",
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(onClick = onClick)
+                    .padding(vertical = 8.dp),
+                color = PastelGreenButton,
+                fontWeight = FontWeight.Bold,
+                lineHeight = 22.sp,
+                textAlign = TextAlign.End
             )
         }
     }
@@ -795,10 +1008,52 @@ private fun SavedRecordDetailScreen(
     record: SavedExerciseRecord,
     onBack: () -> Unit
 ) {
+    BackHandler(onBack = onBack)
+
     ScreenTitle("記録詳細")
     SectionCard(
-        title = "${record.level} ${record.programName}",
-        body = "実施日：${record.date}\n\n実施時刻：${record.time}\n\nプログラム名：${record.programCategory}\n\nレベル：${record.level}\n\n運動名：${record.programName}\n\n実施内容：${record.content}\n\n実施記録：${record.count.ifBlank { "記録なし" }}\n\n自己評価：${record.selfEvaluation}\n\n翌日の悪化：${record.nextDayWorse.ifBlank { "記録なし" }}\n\n次の段階へ進む目安：${record.nextCriteria.ifBlank { "記録なし" }}\n\n一つ前の段階へ戻る目安：${record.backCriteria.ifBlank { "記録なし" }}\n\n開始前メモ：${record.preExerciseMemo.ifBlank { "メモなし" }}\n\n安全確認：\nめまい：${record.dizziness.ifBlank { "記録なし" }}\n息苦しさ：${record.breathlessness.ifBlank { "記録なし" }}\n強い痛み：${record.strongPain.ifBlank { "記録なし" }}\n転倒しそうな感じ：${record.fallRisk.ifBlank { "記録なし" }}"
+        title = "${record.level} ${record.exerciseName}",
+        body = "実施日：${record.date}\n\n" +
+            "実施時刻：${record.time}\n\n" +
+            "プログラム名：${record.programCategory}\n\n" +
+            "レベル：${record.level}\n\n" +
+            "運動名：${record.exerciseName}\n\n" +
+            "実施内容：${record.content}\n\n" +
+            "実施記録：${record.count.ifBlank { "記録なし" }}"
+    )
+    SectionCard(
+        title = "開始時の状態",
+        body = if (record.hasStartCondition) {
+            "【現在の状態】\n\n" +
+                "痛み：${record.startPain}\n" +
+                "疲労：${record.startFatigue}\n" +
+                "睡眠：${sleepDisplayText(record.startSleep)}\n" +
+                "呼吸状態：${record.startBreathing}\n" +
+                "昨日との比較：${record.startComparison}\n\n" +
+                "【動ける範囲】\n\n" +
+                "起き上がる：${record.startGetUp}\n" +
+                "座る：${record.startSit}\n" +
+                "立つ：${record.startStand}\n" +
+                "屋内を歩く：${record.startIndoorWalk}\n" +
+                "屋外へ出る：${record.startOutdoorWalk}"
+        } else {
+            "開始時の状態：記録なし"
+        }
+    )
+    SectionCard(
+        title = "開始前メモ",
+        body = record.preExerciseMemo.ifBlank { "メモなし" }
+    )
+    SectionCard(
+        title = "運動後の自己評価",
+        body = record.selfEvaluation.ifBlank { "記録なし" }
+    )
+    SectionCard(
+        title = "安全確認",
+        body = "めまい：${record.dizziness.ifBlank { "記録なし" }}\n" +
+            "息苦しさ：${record.breathlessness.ifBlank { "記録なし" }}\n" +
+            "強い痛み：${record.strongPain.ifBlank { "記録なし" }}\n" +
+            "転倒しそうな感じ：${record.fallRisk.ifBlank { "記録なし" }}"
     )
     OutlinedButton(
         onClick = onBack,
@@ -825,7 +1080,13 @@ private fun BasicInfoScreen(
     ValueBox(timeText)
     Label("開始前メモ")
     Text(
-        text = "運動を始める前に、覚えていることや気になることがあれば記録してください。",
+        text = "※個人情報保護のため、氏名・住所・電話番号・病院名など、個人を特定できる情報は入力しないでください。",
+        color = TextHint,
+        fontSize = 14.sp,
+        lineHeight = 20.sp
+    )
+    Text(
+        text = "今日の体調や気になることがあれば、活動を始める前に記録してください。",
         color = TextPrimary,
         lineHeight = 22.sp
     )
@@ -849,11 +1110,11 @@ private fun BasicInfoScreen(
 private fun SelfCheckScreen(
     state: SelfCheckState,
     onStateChange: (SelfCheckState) -> Unit,
-    onEvaluate: () -> Unit
+    onNext: () -> Unit
 ) {
-    ScreenTitle("自己評価")
+    ScreenTitle("現在の状態")
     Text(
-        text = "これは点数をつける画面ではありません。今日の現在位置を確認し、安全な次の一歩を決めるための入力です。",
+        text = "これは点数をつける画面ではありません。今日の状態を確認し、安全な次の一歩を決めるための入力です。",
         color = TextPrimary,
         lineHeight = 22.sp
     )
@@ -863,12 +1124,38 @@ private fun SelfCheckScreen(
     ChoiceField("睡眠", SleepChoices, state.sleep) { onStateChange(state.copy(sleep = it)) }
     ChoiceField("呼吸状態", BreathingChoices, state.breathing) { onStateChange(state.copy(breathing = it)) }
     ChoiceField("昨日との比較", ComparisonChoices, state.comparison) { onStateChange(state.copy(comparison = it)) }
-    ChoiceField("起き上がれるか", AbilityChoices, state.getUp) { onStateChange(state.copy(getUp = it)) }
-    ChoiceField("座れるか", AbilityChoices, state.sit) { onStateChange(state.copy(sit = it)) }
-    ChoiceField("立てるか", AbilityChoices, state.stand) { onStateChange(state.copy(stand = it)) }
-    ChoiceField("屋内を歩けるか", AbilityChoices, state.indoorWalk) { onStateChange(state.copy(indoorWalk = it)) }
-    ChoiceField("屋外へ出られるか", AbilityChoices, state.outdoor) { onStateChange(state.copy(outdoor = it)) }
 
+    PrimaryButton(text = "動ける範囲へ", onClick = onNext)
+}
+
+@Composable
+private fun AbilityRangeScreen(
+    state: SelfCheckState,
+    onStateChange: (SelfCheckState) -> Unit,
+    onBack: () -> Unit,
+    onEvaluate: () -> Unit
+) {
+    BackHandler(onBack = onBack)
+
+    ScreenTitle("動ける範囲")
+    Text(
+        text = "無理をせず、今日安全にできる範囲を選んでください。",
+        color = TextPrimary,
+        lineHeight = 22.sp
+    )
+
+    ChoiceField("起き上がる", AbilityChoices, state.getUp) { onStateChange(state.copy(getUp = it)) }
+    ChoiceField("座る", AbilityChoices, state.sit) { onStateChange(state.copy(sit = it)) }
+    ChoiceField("立つ", AbilityChoices, state.stand) { onStateChange(state.copy(stand = it)) }
+    ChoiceField("屋内を歩く", AbilityChoices, state.indoorWalk) { onStateChange(state.copy(indoorWalk = it)) }
+    ChoiceField("屋外へ出る", AbilityChoices, state.outdoor) { onStateChange(state.copy(outdoor = it)) }
+
+    Text(
+        text = "できることを増やすためではなく、今日の安全な位置を確認します。",
+        color = TextHint,
+        fontSize = 14.sp,
+        lineHeight = 20.sp
+    )
     PrimaryButton(text = "現在位置を確認する", onClick = onEvaluate)
 }
 
@@ -897,20 +1184,40 @@ private fun ResultScreen(
 }
 
 @Composable
-private fun BeforeStartScreen(onStartProgram: () -> Unit) {
+private fun BeforeStartScreen(
+    onStartProgram1: () -> Unit,
+    onStartProgram2: () -> Unit
+) {
     ScreenTitle("開始前確認")
     MessageCard(
         text = "すべての運動は深呼吸から始まります。\n\n深呼吸は準備運動ではありません。\n\n今日の身体の状態を確認するための最初の評価です。"
     )
-    PrimaryButton(
-        text = "運動プログラム開始",
-        onClick = onStartProgram
+    ProgramSelectionButton(
+        title = "プログラム1　基本回復プログラム",
+        subtitle = "深呼吸から始める",
+        onClick = onStartProgram1
+    )
+    Spacer(modifier = Modifier.height(16.dp))
+    Text(
+        text = "すでに起き上がり・座位・立位が安定し、歩行練習を始められる場合に選んでください。",
+        color = TextHint,
+        fontSize = 14.sp,
+        lineHeight = 20.sp
+    )
+    ProgramSelectionButton(
+        title = "プログラム2　歩行プログラム",
+        subtitle = "歩行練習へ進む",
+        onClick = onStartProgram2
     )
 }
 
 @Composable
 private fun DeepBreathingLevel1Screen(
+    dateText: String,
+    timeText: String,
     preExerciseMemo: String,
+    startState: SelfCheckState,
+    recordProgramName: String,
     onBackToTop: () -> Unit,
     onNext: () -> Unit
 ) {
@@ -949,7 +1256,11 @@ private fun DeepBreathingLevel1Screen(
             recordMessage = if (
                 saveExerciseRecordSafely(
                     context = context,
+                    dateText = dateText,
+                    timeText = timeText,
                     program = DeepBreathingLevel1Program,
+                    recordProgramName = recordProgramName,
+                    startState = startState,
                     count = DeepBreathingCountChoices.first(),
                     selfEvaluation = AfterPracticeChoices[afterPractice],
                     dizziness = SafetyCheckChoices[dizziness],
@@ -974,7 +1285,11 @@ private fun DeepBreathingLevel1Screen(
 
 @Composable
 private fun DeepBreathingLevel2Screen(
+    dateText: String,
+    timeText: String,
     preExerciseMemo: String,
+    startState: SelfCheckState,
+    recordProgramName: String,
     onBackToTop: () -> Unit,
     onNext: () -> Unit
 ) {
@@ -1017,7 +1332,11 @@ private fun DeepBreathingLevel2Screen(
             recordMessage = if (
                 saveExerciseRecordSafely(
                     context = context,
+                    dateText = dateText,
+                    timeText = timeText,
                     program = DeepBreathingLevel2Program,
+                    recordProgramName = recordProgramName,
+                    startState = startState,
                     count = DeepBreathingCountChoices.first(),
                     selfEvaluation = AfterPracticeChoices[afterPractice],
                     dizziness = RecordNotChecked,
@@ -1042,7 +1361,11 @@ private fun DeepBreathingLevel2Screen(
 
 @Composable
 private fun StandingLevel3Screen(
+    dateText: String,
+    timeText: String,
     preExerciseMemo: String,
+    startState: SelfCheckState,
+    recordProgramName: String,
     onBackToTop: () -> Unit,
     onNext: () -> Unit
 ) {
@@ -1083,7 +1406,11 @@ private fun StandingLevel3Screen(
             recordMessage = if (
                 saveExerciseRecordSafely(
                     context = context,
+                    dateText = dateText,
+                    timeText = timeText,
                     program = StandingLevel3Program,
+                    recordProgramName = recordProgramName,
+                    startState = startState,
                     count = StandingCountChoices.first(),
                     selfEvaluation = AfterPracticeChoices[afterPractice],
                     dizziness = SafetyCheckChoices[dizziness],
@@ -1108,7 +1435,11 @@ private fun StandingLevel3Screen(
 
 @Composable
 private fun DeepSquatLevel32Screen(
+    dateText: String,
+    timeText: String,
     preExerciseMemo: String,
+    startState: SelfCheckState,
+    recordProgramName: String,
     onBackToTop: () -> Unit,
     onNext: () -> Unit
 ) {
@@ -1153,7 +1484,11 @@ private fun DeepSquatLevel32Screen(
             recordMessage = if (
                 saveExerciseRecordSafely(
                     context = context,
+                    dateText = dateText,
+                    timeText = timeText,
                     program = DeepSquatLevel32Program,
+                    recordProgramName = recordProgramName,
+                    startState = startState,
                     count = HoldTenSecondsChoices[heldTenSeconds],
                     selfEvaluation = AfterPracticeChoices[afterPractice],
                     dizziness = SafetyCheckChoices[dizziness],
@@ -1178,9 +1513,14 @@ private fun DeepSquatLevel32Screen(
 
 @Composable
 private fun IndoorWalkingLevel4Screen(
+    dateText: String,
+    timeText: String,
     preExerciseMemo: String,
+    startState: SelfCheckState,
+    recordProgramName: String,
     onBackToTop: () -> Unit,
-    onComplete: () -> Unit
+    onComplete: () -> Unit,
+    onNavigateBack: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
     var dizziness by remember { mutableStateOf(0) }
@@ -1202,6 +1542,18 @@ private fun IndoorWalkingLevel4Screen(
         recordCheckLine("食卓", diningTable),
         recordCheckLine("玄関", entrance)
     ).joinToString("\n")
+
+    if (onNavigateBack != null) {
+        BackHandler(onBack = onNavigateBack)
+        OutlinedButton(
+            onClick = onNavigateBack,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(54.dp)
+        ) {
+            Text("開始前確認へ戻る")
+        }
+    }
 
     ScreenTitle("レベル4 屋内歩行練習")
     SectionCard(
@@ -1238,7 +1590,11 @@ private fun IndoorWalkingLevel4Screen(
             recordMessage = if (
                 saveExerciseRecordSafely(
                     context = context,
+                    dateText = dateText,
+                    timeText = timeText,
                     program = IndoorWalkingLevel4Program,
+                    recordProgramName = recordProgramName,
+                    startState = startState,
                     count = achievedText,
                     selfEvaluation = AfterPracticeChoices[afterPractice],
                     dizziness = SafetyCheckChoices[dizziness],
@@ -1471,6 +1827,43 @@ private fun PainCompassGuidanceCard() {
 }
 
 @Composable
+private fun ProgramSelectionButton(
+    title: String,
+    subtitle: String,
+    onClick: () -> Unit
+) {
+    Button(
+        onClick = onClick,
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 76.dp),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(
+            horizontal = 16.dp,
+            vertical = 12.dp
+        )
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Text(
+                text = title,
+                fontSize = 17.sp,
+                fontWeight = FontWeight.Bold,
+                lineHeight = 22.sp,
+                textAlign = TextAlign.Center
+            )
+            Text(
+                text = subtitle,
+                fontSize = 14.sp,
+                lineHeight = 19.sp,
+                textAlign = TextAlign.Center
+            )
+        }
+    }
+}
+
+@Composable
 private fun PrimaryButton(
     text: String,
     onClick: () -> Unit
@@ -1593,7 +1986,11 @@ private fun hasStrongBurden(state: SelfCheckState): Boolean {
 
 private fun saveExerciseRecordSafely(
     context: Context,
+    dateText: String,
+    timeText: String,
     program: ExerciseProgram,
+    recordProgramName: String,
+    startState: SelfCheckState,
     count: String,
     selfEvaluation: String,
     dizziness: String,
@@ -1603,12 +2000,13 @@ private fun saveExerciseRecordSafely(
     preExerciseMemo: String = ""
 ): Boolean {
     return runCatching {
-        val now = Date()
         saveExerciseRecord(
             context = context,
-            dateText = SimpleDateFormat("yyyy年M月d日", Locale.JAPAN).format(now),
-            timeText = SimpleDateFormat("HH:mm", Locale.JAPAN).format(now),
+            dateText = dateText,
+            timeText = timeText,
             program = program,
+            recordProgramName = recordProgramName,
+            startState = startState,
             count = count,
             selfEvaluation = selfEvaluation,
             dizziness = dizziness,
@@ -1625,6 +2023,8 @@ private fun saveExerciseRecord(
     dateText: String,
     timeText: String,
     program: ExerciseProgram,
+    recordProgramName: String,
+    startState: SelfCheckState,
     count: String,
     selfEvaluation: String,
     dizziness: String,
@@ -1635,15 +2035,35 @@ private fun saveExerciseRecord(
 ) {
     val preferences = context.getSharedPreferences(ExerciseRecordPreferencesName, Context.MODE_PRIVATE)
     val records = JSONArray(preferences.getString(ExerciseRecordListKey, "[]") ?: "[]")
+    val startCondition = startConditionStorageValues(startState)
+    val mobility = mobilityStorageValues(startState)
     val record = JSONObject()
         .put("date", dateText)
         .put("time", timeText)
-        .put("programName", program.programName)
+        .put("programName", recordProgramName)
         .put("level", program.level)
         .put("content", program.content)
         .put("count", count)
         .put("selfEvaluation", selfEvaluation)
         .put("preExerciseMemo", preExerciseMemo)
+        .put(
+            "startCondition",
+            JSONObject()
+                .put("pain", startCondition.getValue("pain"))
+                .put("fatigue", startCondition.getValue("fatigue"))
+                .put("sleep", startCondition.getValue("sleep"))
+                .put("breathing", startCondition.getValue("breathing"))
+                .put("comparedWithYesterday", startCondition.getValue("comparedWithYesterday"))
+        )
+        .put(
+            "mobility",
+            JSONObject()
+                .put("getUp", mobility.getValue("getUp"))
+                .put("sit", mobility.getValue("sit"))
+                .put("stand", mobility.getValue("stand"))
+                .put("indoorWalk", mobility.getValue("indoorWalk"))
+                .put("outdoorWalk", mobility.getValue("outdoorWalk"))
+        )
         .put(
             "safety",
             JSONObject()
@@ -1655,6 +2075,22 @@ private fun saveExerciseRecord(
     records.put(record)
     preferences.edit().putString(ExerciseRecordListKey, records.toString()).apply()
 }
+
+internal fun startConditionStorageValues(state: SelfCheckState): Map<String, String> = linkedMapOf(
+    "pain" to PainChoices[state.pain],
+    "fatigue" to FatigueChoices[state.fatigue],
+    "sleep" to SleepStorageChoices[state.sleep],
+    "breathing" to BreathingChoices[state.breathing],
+    "comparedWithYesterday" to ComparisonChoices[state.comparison]
+)
+
+internal fun mobilityStorageValues(state: SelfCheckState): Map<String, String> = linkedMapOf(
+    "getUp" to AbilityChoices[state.getUp],
+    "sit" to AbilityChoices[state.sit],
+    "stand" to AbilityChoices[state.stand],
+    "indoorWalk" to AbilityChoices[state.indoorWalk],
+    "outdoorWalk" to AbilityChoices[state.outdoor]
+)
 
 private fun recordCheckLine(label: String, checked: Boolean): String {
     return "${if (checked) "✓" else "□"} $label"
@@ -1678,83 +2114,105 @@ private fun recordEvaluationMark(value: String): String {
     return value.takeIf { it.isNotBlank() }?.substringBefore(" ") ?: "-"
 }
 
-private fun mandalaLevelNumber(level: String): Int? {
-    return Regex("""\d+""").find(level)?.value?.toIntOrNull()
-}
-
-private fun mandalaEvaluationNumber(selfEvaluation: String): Int? {
-    return when {
-        selfEvaluation.startsWith("①") -> 1
-        selfEvaluation.startsWith("②") -> 2
-        selfEvaluation.startsWith("③") -> 3
-        selfEvaluation.startsWith("④") -> 4
-        selfEvaluation.startsWith("⑤") -> 5
-        selfEvaluation == "楽になった" -> 1
-        selfEvaluation == "変わらない" -> 2
-        selfEvaluation == "少しつらい" -> 3
-        selfEvaluation == "思ったよりつらかった" -> 4
-        selfEvaluation == "動けなくなった" -> 5
-        else -> null
+private fun sleepDisplayText(storedValue: String): String {
+    return if (storedValue == "少し眠れた") {
+        "少し目が覚めることがあった"
+    } else {
+        storedValue
     }
 }
 
-private fun recoveryMandalaMarkers(
-    records: List<SavedExerciseRecord>,
-    levels: List<Int>,
-    evaluations: List<Int>
-): Map<Pair<Int, Int>, List<MandalaMarker>> {
-    return records
-        .mapNotNull { record ->
-            val levelNumber = mandalaLevelNumber(record.level) ?: return@mapNotNull null
-            val evaluationNumber = mandalaEvaluationNumber(record.selfEvaluation) ?: return@mapNotNull null
-            if (levelNumber in levels && evaluationNumber in evaluations) {
-                record to (levelNumber to evaluationNumber)
-            } else {
-                null
-            }
-        }
-        .mapIndexed { index, recordCell ->
-            val (record, cell) = recordCell
-            val marker = when (index) {
-                0 -> MandalaMarker("★", Color(0xFFFFC107), 19)
-                1 -> MandalaMarker("★", Color.Black, 19)
-                2 -> MandalaMarker("☆", Color.White, 19, Color(0xFF7A7A7A))
-                else -> MandalaMarker("●", mandalaPeriodColor(record.date), 15, isHistoryDot = true)
-            }
-            cell to marker
-        }
-        .groupBy(
-            keySelector = { it.first },
-            valueTransform = { it.second }
-        )
-}
-
-private fun mandalaPeriodColor(date: String): Color {
-    val recordDate = runCatching {
-        SimpleDateFormat("yyyy年M月d日", Locale.JAPAN).parse(date)
-    }.getOrNull() ?: return MandalaTwelveWeeksColor
-    val days = ((Date().time - recordDate.time).coerceAtLeast(0L)) / (24L * 60L * 60L * 1000L)
-    return when {
-        days <= 7L -> MandalaOneWeekColor
-        days <= 14L -> MandalaTwoWeeksColor
-        days <= 28L -> MandalaFourWeeksColor
-        days <= 56L -> MandalaEightWeeksColor
-        else -> MandalaTwelveWeeksColor
+internal fun exerciseNameForRecord(programName: String, level: String): String {
+    if (programName != BasicRecoveryProgramName && programName != WalkingProgramName) {
+        return programName
+    }
+    return when (level) {
+        "レベル1" -> "深呼吸の練習"
+        "レベル2" -> "深呼吸"
+        "レベル3" -> "起立練習"
+        "レベル3-2" -> "和式座り（Deep Squat）"
+        "レベル4" -> "屋内歩行練習"
+        else -> programName
     }
 }
 
-private fun compactMandalaMarkers(markers: List<MandalaMarker>): List<MandalaMarker> {
-    val stars = markers.filterNot { it.isHistoryDot }
-    val dots = markers.filter { it.isHistoryDot }
-    if (dots.size <= 3) return stars + dots
-
-    val compactDot = MandalaMarker(
-        symbol = "●×${dots.size}",
-        color = dots.firstOrNull()?.color ?: MandalaTwelveWeeksColor,
-        fontSize = 13,
-        isHistoryDot = true
+private fun recoveryMandalaTrajectory(
+    records: List<SavedExerciseRecord>
+): List<MandalaTrajectoryPoint> {
+    return buildMandalaTrajectory(
+        statesNewestFirst = records.map { record ->
+            MandalaStartState(
+                fatigue = record.startFatigue,
+                getUp = record.startGetUp,
+                sit = record.startSit,
+                stand = record.startStand,
+                indoorWalk = record.startIndoorWalk,
+                outdoorWalk = record.startOutdoorWalk
+            )
+        },
     )
-    return stars + compactDot
+}
+
+private fun shouldShowSocialActivityGuidanceForRecords(
+    records: List<SavedExerciseRecord>
+): Boolean {
+    return shouldShowSocialActivityGuidance(
+        statesNewestFirst = records.map { record ->
+            MandalaStartState(
+                fatigue = record.startFatigue,
+                getUp = record.startGetUp,
+                sit = record.startSit,
+                stand = record.startStand,
+                indoorWalk = record.startIndoorWalk,
+                outdoorWalk = record.startOutdoorWalk
+            )
+        }
+    )
+}
+
+internal fun shouldShowSocialActivityGuidance(
+    statesNewestFirst: List<MandalaStartState>
+): Boolean {
+    val latestThree = statesNewestFirst.take(3)
+    return latestThree.size == 3 && latestThree.all { state ->
+        mobilityMandalaColumn(state) == 5 &&
+            fatigueMandalaRow(state.fatigue) in 1..2
+    }
+}
+
+internal fun mobilityMandalaColumn(state: MandalaStartState): Int? {
+    val mobility = listOf(state.getUp, state.sit, state.stand, state.indoorWalk, state.outdoorWalk)
+    if (mobility.any { it.isBlank() }) return null
+    if (mobility.any { it !in AbilityChoices }) return null
+
+    return mobility.indexOfLast { it == "できる" || it == "少しならできる" }
+        .takeIf { it >= 0 }
+        ?.plus(1)
+        ?: 1
+}
+
+internal fun fatigueMandalaRow(fatigue: String): Int? = when (fatigue) {
+    "無し" -> 1
+    "軽い" -> 2
+    "少しある" -> 3
+    "強い" -> 4
+    "かなり強い", "休息が必要" -> 5
+    else -> null
+}
+
+internal fun buildMandalaTrajectory(
+    statesNewestFirst: List<MandalaStartState>
+): List<MandalaTrajectoryPoint> {
+    return statesNewestFirst
+        .mapNotNull { state ->
+            val column = mobilityMandalaColumn(state) ?: return@mapNotNull null
+            val row = fatigueMandalaRow(state.fatigue) ?: return@mapNotNull null
+            column to row
+        }
+        .mapIndexed { index, cell ->
+            MandalaTrajectoryPoint(cell = cell, isLatest = index == 0)
+        }
+        .asReversed()
 }
 
 private fun deleteExerciseRecordSafely(context: Context, storageIndex: Int): Boolean {
@@ -1768,6 +2226,15 @@ private fun deleteExerciseRecordSafely(context: Context, storageIndex: Int): Boo
     }.getOrDefault(false)
 }
 
+internal fun shouldShowDeleteAllRecords(recordCount: Int): Boolean = recordCount > 0
+
+private fun deleteAllExerciseRecordsSafely(context: Context): Boolean {
+    return runCatching {
+        val preferences = context.getSharedPreferences(ExerciseRecordPreferencesName, Context.MODE_PRIVATE)
+        preferences.edit().remove(ExerciseRecordListKey).commit()
+    }.getOrDefault(false)
+}
+
 private fun loadExerciseRecordsSafely(context: Context): List<SavedExerciseRecord> {
     return runCatching {
         val preferences = context.getSharedPreferences(ExerciseRecordPreferencesName, Context.MODE_PRIVATE)
@@ -1775,6 +2242,8 @@ private fun loadExerciseRecordsSafely(context: Context): List<SavedExerciseRecor
         List(records.length()) { index ->
             val record = records.getJSONObject(index)
             val safety = record.optJSONObject("safety")
+            val startCondition = record.optJSONObject("startCondition")
+            val mobility = record.optJSONObject("mobility")
             SavedExerciseRecord(
                 storageIndex = index,
                 date = record.optString("date"),
@@ -1789,6 +2258,16 @@ private fun loadExerciseRecordsSafely(context: Context): List<SavedExerciseRecor
                 breathlessness = safety?.optString("breathlessness").orEmpty(),
                 strongPain = safety?.optString("strongPain").orEmpty(),
                 fallRisk = safety?.optString("fallRisk").orEmpty(),
+                startPain = startCondition?.optString("pain").orEmpty(),
+                startFatigue = startCondition?.optString("fatigue").orEmpty(),
+                startSleep = startCondition?.optString("sleep").orEmpty(),
+                startBreathing = startCondition?.optString("breathing").orEmpty(),
+                startComparison = startCondition?.optString("comparedWithYesterday").orEmpty(),
+                startGetUp = mobility?.optString("getUp").orEmpty(),
+                startSit = mobility?.optString("sit").orEmpty(),
+                startStand = mobility?.optString("stand").orEmpty(),
+                startIndoorWalk = mobility?.optString("indoorWalk").orEmpty(),
+                startOutdoorWalk = mobility?.optString("outdoorWalk").orEmpty(),
                 nextDayWorse = record.optString("nextDayWorse"),
                 nextCriteria = record.optString("nextCriteria"),
                 backCriteria = record.optString("backCriteria")
@@ -1799,7 +2278,8 @@ private fun loadExerciseRecordsSafely(context: Context): List<SavedExerciseRecor
 
 private val PainChoices = listOf("痛くない", "軽い", "少しある", "強い", "かなり強い", "動くのがつらい")
 private val FatigueChoices = listOf("無し", "軽い", "少しある", "強い", "かなり強い", "休息が必要")
-private val SleepChoices = listOf("眠れた", "少し眠れた", "眠りが浅い", "ほとんど眠れない")
+private val SleepChoices = listOf("眠れた", "少し目が覚めることがあった", "眠りが浅い", "ほとんど眠れない")
+private val SleepStorageChoices = listOf("眠れた", "少し眠れた", "眠りが浅い", "ほとんど眠れない")
 private val BreathingChoices = listOf("落ち着いている", "少し浅い", "苦しさがある", "苦しさが強い")
 private val ComparisonChoices = listOf("昨日より良い", "少し良い", "変わらない", "少し悪い", "かなり悪い")
 private val AbilityChoices = listOf("できる", "少しならできる", "今日は難しい")
@@ -1847,20 +2327,18 @@ private val IndoorWalkingLevel4Program = ExerciseProgram(
 
 private const val ExerciseRecordPreferencesName = "exercise_records"
 private const val ExerciseRecordListKey = "records"
+internal const val BasicRecoveryProgramName = "基本回復プログラム"
+internal const val WalkingProgramName = "歩行プログラム"
 
 private val ScreenBackground = Color(0xFFF7FAF8)
 private val TextPrimary = Color.Black
 private val TextHint = Color(0xFF555555)
 private val PastelGreenButton = Color(0xFF4CAF72)
 private val MandalaPurpleButton = Color(0xFF5E548E)
+private val MandalaTrajectoryPointColor = Color(0xFF37474F)
+private val MandalaTrajectoryLineColor = Color(0xFF90A4AE)
 private val CalmDeepTeal = Color(0xFF1F6B5C)
 private val CalmSubButtonBorder = Color(0xFFE0E3E1)
-private val MandalaOneWeekColor = Color.Black
-private val MandalaTwoWeeksColor = Color(0xFFC62828)
-private val MandalaFourWeeksColor = Color(0xFF7B1FA2)
-private val MandalaEightWeeksColor = Color(0xFF2E7D32)
-private val MandalaTwelveWeeksColor = Color(0xFF1565C0)
-
 @Preview(showBackground = true)
 @Composable
 private fun DailyLivingCompassPreview() {
