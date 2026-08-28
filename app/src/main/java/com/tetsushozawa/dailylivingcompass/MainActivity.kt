@@ -95,6 +95,7 @@ private enum class AppStep {
     AbilityRange,
     Result,
     BeforeStart,
+    LevelSelection,
     DeepBreathingLevel1,
     DeepBreathingLevel2,
     StandingLevel3,
@@ -292,13 +293,29 @@ private fun DailyLivingCompassApp() {
                     )
 
                     AppStep.BeforeStart -> BeforeStartScreen(
-                        onStartProgram1 = {
+                        onStartProgram = { step = AppStep.LevelSelection }
+                    )
+
+                    AppStep.LevelSelection -> LevelSelectionScreen(
+                        onSelectLevel1 = {
                             selectedProgramName = BasicRecoveryProgramName
                             step = AppStep.DeepBreathingLevel1
                         },
-                        onStartProgram2 = {
-                            selectedProgramName = WalkingProgramName
-                            step = AppStep.Program2IndoorWalking
+                        onSelectLevel2 = {
+                            selectedProgramName = BasicRecoveryProgramName
+                            step = AppStep.DeepBreathingLevel2
+                        },
+                        onSelectLevel31 = {
+                            selectedProgramName = BasicRecoveryProgramName
+                            step = AppStep.StandingLevel3
+                        },
+                        onSelectLevel32 = {
+                            selectedProgramName = BasicRecoveryProgramName
+                            step = AppStep.DeepSquatLevel32
+                        },
+                        onSelectLevel4 = {
+                            selectedProgramName = BasicRecoveryProgramName
+                            step = AppStep.IndoorWalkingLevel4
                         }
                     )
 
@@ -1184,31 +1201,28 @@ private fun ResultScreen(
 }
 
 @Composable
-private fun BeforeStartScreen(
-    onStartProgram1: () -> Unit,
-    onStartProgram2: () -> Unit
-) {
+private fun BeforeStartScreen(onStartProgram: () -> Unit) {
     ScreenTitle("開始前確認")
     MessageCard(
         text = "すべての運動は深呼吸から始まります。\n\n深呼吸は準備運動ではありません。\n\n今日の身体の状態を確認するための最初の評価です。"
     )
-    ProgramSelectionButton(
-        title = "プログラム1　基本回復プログラム",
-        subtitle = "深呼吸から始める",
-        onClick = onStartProgram1
-    )
-    Spacer(modifier = Modifier.height(16.dp))
-    Text(
-        text = "すでに起き上がり・座位・立位が安定し、歩行練習を始められる場合に選んでください。",
-        color = TextHint,
-        fontSize = 14.sp,
-        lineHeight = 20.sp
-    )
-    ProgramSelectionButton(
-        title = "プログラム2　歩行プログラム",
-        subtitle = "歩行練習へ進む",
-        onClick = onStartProgram2
-    )
+    PrimaryButton(text = "運動プログラム開始", onClick = onStartProgram)
+}
+
+@Composable
+private fun LevelSelectionScreen(
+    onSelectLevel1: () -> Unit,
+    onSelectLevel2: () -> Unit,
+    onSelectLevel31: () -> Unit,
+    onSelectLevel32: () -> Unit,
+    onSelectLevel4: () -> Unit
+) {
+    ScreenTitle("開始レベルを選択")
+    PrimaryButton(text = "レベル1", onClick = onSelectLevel1)
+    PrimaryButton(text = "レベル2", onClick = onSelectLevel2)
+    PrimaryButton(text = "レベル3-1", onClick = onSelectLevel31)
+    PrimaryButton(text = "レベル3-2", onClick = onSelectLevel32)
+    PrimaryButton(text = "レベル4", onClick = onSelectLevel4)
 }
 
 @Composable
